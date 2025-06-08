@@ -1,0 +1,15 @@
+# Ignorar dependências do Node, pois elas serão instaladas dentro do contêiner
+node_modules
+
+# Ignorar arquivos de log e de ambiente
+npm-debug.log
+.env
+
+# Ignorar a pasta de downloads local
+downloads/
+
+# Ignorar a pasta do Git
+.git
+
+# Ignorar arquivos do VS Code
+.vscode

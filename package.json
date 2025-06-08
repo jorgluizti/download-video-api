@@ -1,10 +1,13 @@
 {
   "name": "instaDownloadAPI",
   "version": "1.0.0",
-  "main": "index.js",
+  "type": "module",
+  "main": "src/api/server.js",
   "license": "MIT",
   "scripts": {
-    "dev": "node --watch src/app.js"
+    "start:api": "node src/api/server.js",
+    "start:worker": "node src/workers/index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
   },
   "dependencies": {
     "bullmq": "4.18.2",
