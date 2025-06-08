@@ -21,3 +21,5 @@ COPY . .
 EXPOSE 3000
 
 # NOTA: Não vamos definir um CMD aqui. Ele será definido na plataforma de deploy.
+
+CMD ["node", "src/api/server.js"]
