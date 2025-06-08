@@ -26,8 +26,9 @@ app.use(limiter); // O middleware é aplicado aqui
 const redisConnection = new Redis({
   host: 'localhost',
   port: 6379,
+  maxRetriesPerRequest: null,
+  enableReadyCheck: false,
 });
-
 
 // ==============================================================================
 //  ALTERAÇÃO 1: Fila dedicada para a limpeza
@@ -91,17 +92,14 @@ app.get('/download/:id', (req, res) => {
 });
 
 // --- Workers ---
-const { execFile } = require('child_process'); // Importe execFile para mais segurança
 
 const downloadWorker = new Worker('downloadQueue', async job => {
   const { url, requestId } = job.data;
   const outputPath = path.join(DOWNLOAD_DIR, `${requestId}.mp4`);
-
-  // Comando agora é agnóstico e seguro
-  const args = ['-o', outputPath, url];
+  const command = `"C:/downloads/yt-dlp.exe" -o "${outputPath}" "${url}"`;
 
   return new Promise((resolve, reject) => {
-    execFile('yt-dlp', args, (error, stdout, stderr) => {
+    exec(command, (error, stdout, stderr) => {
       if (error) {
         reject(new Error(stderr || 'Ocorreu um erro desconhecido durante o download.'));
       } else {
@@ -113,6 +111,7 @@ const downloadWorker = new Worker('downloadQueue', async job => {
   connection: redisConnection,
   concurrency: 6
 });
+
 // ==============================================================================
 //  ALTERAÇÃO 2: Novo worker e agendamento da limpeza
 // ==============================================================================
