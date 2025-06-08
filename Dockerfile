@@ -1,10 +1,8 @@
 # Passo 1: Usar uma imagem base oficial do Node.js (versão slim é menor)
 FROM node:20-slim
 
-# Passo 2: Instalar dependências do sistema (Python/Pip) e o yt-dlp
-# É a mesma lógica do seu Dockerfile antigo, o que é ótimo!
-RUN apt-get update && apt-get install -y --no-install-recommends python3 python3-pip && \
-    pip3 install yt-dlp && \
+# Passo 2: Instalar dependências do sistema e o yt-dlp via apt-get
+RUN apt-get update && apt-get install -y --no-install-recommends python3 yt-dlp && \
     # Limpa o cache para manter a imagem pequena
     rm -rf /var/lib/apt/lists/*
 
