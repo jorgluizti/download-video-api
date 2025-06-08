@@ -26,8 +26,6 @@ app.use(limiter); // O middleware é aplicado aqui
 const redisConnection = new Redis({
   host: 'localhost',
   port: 6379,
-  maxRetriesPerRequest: null,
-  enableReadyCheck: false,
 });
 
 
