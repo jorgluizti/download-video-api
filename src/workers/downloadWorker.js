@@ -298,6 +298,60 @@
 
 
 // src/workers/downloadWorker.js
+// import { Worker } from 'bullmq';
+// import path from 'path';
+// import fs from 'fs';
+// import { execFile } from 'child_process';
+// import { bullmqConnectionConfig } from '../config/redis.js';
+
+// const DOWNLOAD_DIR = path.join(process.cwd(), 'downloads');
+
+// // ✅ CAMINHO CORRETO PARA O ARQUIVO DENTRO DO PROJETO E DO CONTÊINER
+// const cookiesPath = path.resolve(process.cwd(), 'src/config/cookies.txt');
+
+// export function startDownloadWorker() {
+//   const downloadWorker = new Worker('downloadQueue', async (job) => {
+//     console.log(`[WORKER] Job ${job.id} recebido! Iniciando processamento...`);
+
+//     // Verifica se o arquivo de cookies realmente existe no caminho esperado
+//     if (!fs.existsSync(cookiesPath)) {
+//       throw new Error(`Arquivo de cookies não encontrado no caminho: ${cookiesPath}`);
+//     }
+
+//     const { url, requestId } = job.data;
+//     const outputPath = path.join(DOWNLOAD_DIR, `${requestId}.mp4`);
+
+//     // Argumentos do comando, usando o caminho direto para o arquivo de cookies
+//     const args = [
+//       '--cookies', cookiesPath,
+//       '-o', outputPath,
+//       '--no-warnings',
+//       url
+//     ];
+
+//     console.log(`[WORKER] Executando comando yt-dlp para o job ${job.id}...`);
+
+//     return new Promise((resolve, reject) => {
+//       execFile('yt-dlp', args, (error, stdout, stderr) => {
+//         if (error) {
+//           return reject(new Error(stderr || 'Erro desconhecido durante o download.'));
+//         }
+//         resolve({ message: 'Download completo' });
+//       });
+//     });
+//   }, {
+//     connection: bullmqConnectionConfig,
+//     concurrency: 6,
+//   });
+
+//   // Seus listeners de eventos (on 'completed' e on 'failed')
+//   downloadWorker.on('completed', job => { /* ... seu código aqui ... */ });
+//   downloadWorker.on('failed', (job, err) => { /* ... seu código aqui ... */ });
+
+//   console.log('▶️  Worker de Download iniciado e escutando a fila.');
+// }
+
+// src/workers/downloadWorker.js
 import { Worker } from 'bullmq';
 import path from 'path';
 import fs from 'fs';
@@ -305,29 +359,19 @@ import { execFile } from 'child_process';
 import { bullmqConnectionConfig } from '../config/redis.js';
 
 const DOWNLOAD_DIR = path.join(process.cwd(), 'downloads');
-
-// ✅ CAMINHO CORRETO PARA O ARQUIVO DENTRO DO PROJETO E DO CONTÊINER
 const cookiesPath = path.resolve(process.cwd(), 'src/config/cookies.txt');
 
 export function startDownloadWorker() {
   const downloadWorker = new Worker('downloadQueue', async (job) => {
     console.log(`[WORKER] Job ${job.id} recebido! Iniciando processamento...`);
 
-    // Verifica se o arquivo de cookies realmente existe no caminho esperado
     if (!fs.existsSync(cookiesPath)) {
       throw new Error(`Arquivo de cookies não encontrado no caminho: ${cookiesPath}`);
     }
 
     const { url, requestId } = job.data;
     const outputPath = path.join(DOWNLOAD_DIR, `${requestId}.mp4`);
-
-    // Argumentos do comando, usando o caminho direto para o arquivo de cookies
-    const args = [
-      '--cookies', cookiesPath,
-      '-o', outputPath,
-      '--no-warnings',
-      url
-    ];
+    const args = ['--cookies', cookiesPath, '-o', outputPath, '--no-warnings', url];
 
     console.log(`[WORKER] Executando comando yt-dlp para o job ${job.id}...`);
 
@@ -336,7 +380,32 @@ export function startDownloadWorker() {
         if (error) {
           return reject(new Error(stderr || 'Erro desconhecido durante o download.'));
         }
-        resolve({ message: 'Download completo' });
+
+        // ==========================================================
+        //              INÍCIO DO NOVO BLOCO DE VERIFICAÇÃO
+        // ==========================================================
+        console.log('[WORKER] Comando yt-dlp finalizado sem código de erro. Verificando a existência do arquivo...');
+        console.log(`[WORKER] Procurando por arquivo em: ${outputPath}`);
+
+        if (fs.existsSync(outputPath)) {
+          console.log(`[WORKER] ✅ Arquivo encontrado! Resolvendo o job como SUCESSO.`);
+          resolve({ message: 'Download completo e arquivo verificado.' });
+        } else {
+          console.error(`[WORKER] ❌ ARQUIVO NÃO ENCONTRADO! O yt-dlp terminou, mas não criou o arquivo.`);
+
+          // Tenta listar o conteúdo da pasta para depuração
+          try {
+            const filesInDir = fs.readdirSync(DOWNLOAD_DIR);
+            console.log(`[WORKER] Conteúdo atual da pasta 'downloads':`, filesInDir);
+          } catch (e) {
+            console.error(`[WORKER] Não foi possível ler o diretório 'downloads':`, e);
+          }
+
+          reject(new Error('Falha pós-processamento: O arquivo de saída não foi criado pelo yt-dlp.'));
+        }
+        // ==========================================================
+        //                FIM DO NOVO BLOCO DE VERIFICAÇÃO
+        // ==========================================================
       });
     });
   }, {
@@ -344,9 +413,9 @@ export function startDownloadWorker() {
     concurrency: 6,
   });
 
-  // Seus listeners de eventos (on 'completed' e on 'failed')
-  downloadWorker.on('completed', job => { /* ... seu código aqui ... */ });
-  downloadWorker.on('failed', (job, err) => { /* ... seu código aqui ... */ });
+  // Seus listeners ...
+  downloadWorker.on('completed', job => { /* ... */ });
+  downloadWorker.on('failed', (job, err) => { /* ... */ });
 
   console.log('▶️  Worker de Download iniciado e escutando a fila.');
 }
