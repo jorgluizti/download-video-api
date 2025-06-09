@@ -20,4 +20,5 @@ COPY . .
 # Passo 6: Expor a porta que a API irá usar
 EXPOSE 3000
 
-# NOTA: Não vamos definir um CMD aqui. Ele será definido na plataforma de deploy.
+# ADICIONE ESTA LINHA: Copia o arquivo de cookies
+COPY src/config/cookies.txt /app/src/config/cookies.txt
