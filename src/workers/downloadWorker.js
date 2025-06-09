@@ -216,43 +216,82 @@
 
 
 // src/workers/downloadWorker.js
-// ... outros imports
 import { Worker } from 'bullmq';
 import path from 'path';
+import fs from 'fs';
 import { execFile } from 'child_process';
 import { bullmqConnectionConfig } from '../config/redis.js';
-// const cookiesPath = path.join('/tmp', `cookies_${job.id}.txt`); // LINHA ANTIGA - REMOVA
 
 const DOWNLOAD_DIR = path.join(process.cwd(), 'downloads');
-const cookiesPath = path.resolve(process.cwd(), 'src/config/cookies.txt'); // <-- LINHA NOVA
 
 export function startDownloadWorker() {
   const downloadWorker = new Worker('downloadQueue', async (job) => {
-    // try { // O bloco try/finally para criar e deletar o arquivo não é mais necessário
-    const { url, requestId } = job.data;
-    const outputPath = path.join(DOWNLOAD_DIR, `${requestId}.mp4`);
+    // --- LOG DE DEPURAÇÃO 1 ---
+    console.log(`[WORKER] Job ${job.id} recebido! Iniciando processamento...`);
 
-    const args = [
-      '--cookies', cookiesPath, // Usa o caminho do arquivo copiado
-      '-o', outputPath,
-      '--no-warnings',
-      url
-    ];
+    const cookiesPath = path.join('/tmp', `cookies_${job.id}.txt`);
 
-    return await new Promise((resolve, reject) => {
-      execFile('yt-dlp', args, (error, stdout, stderr) => {
-        if (error) {
-          return reject(new Error(stderr || 'Erro desconhecido durante o download.'));
-        }
-        resolve({ message: 'Download completo' });
+    try {
+      // --- INÍCIO DA LÓGICA DE COOKIES ---
+      const cookiesContent = process.env.INSTAGRAM_COOKIES;
+      if (!cookiesContent) {
+        // Se a variável não estiver configurada, o job falhará com uma mensagem clara.
+        throw new Error('Variável de ambiente INSTAGRAM_COOKIES não configurada.');
+      }
+      // Escreve o conteúdo da variável em um arquivo temporário para o yt-dlp ler.
+      fs.writeFileSync(cookiesPath, cookiesContent);
+      // --- FIM DA LÓGICA DE COOKIES ---
+
+      const { url, requestId } = job.data;
+      const outputPath = path.join(DOWNLOAD_DIR, `${requestId}.mp4`);
+
+      // Argumentos do comando, agora incluindo o caminho para o arquivo de cookies.
+      const args = [
+        '--cookies', cookiesPath,
+        '-o', outputPath,
+        '--no-warnings',
+        url
+      ];
+
+      // --- LOG DE DEPURAÇÃO 2 ---
+      // Logamos o comando para saber que a execução foi iniciada.
+      console.log(`[WORKER] Executando comando yt-dlp para o job ${job.id}...`);
+
+      return await new Promise((resolve, reject) => {
+        execFile('yt-dlp', args, (error, stdout, stderr) => {
+          if (error) {
+            return reject(new Error(stderr || 'Erro desconhecido durante o download.'));
+          }
+          resolve({ message: 'Download completo' });
+        });
       });
-    });
-    // } finally {
-    //   // Não precisamos mais deletar
-    // }
+
+    } finally {
+      // Este bloco 'finally' é muito importante!
+      // Ele garante que o arquivo de cookies temporário seja deletado
+      // depois da tentativa de download, independentemente se deu certo ou falhou.
+      if (fs.existsSync(cookiesPath)) {
+        fs.unlinkSync(cookiesPath);
+      }
+    }
   }, {
     connection: bullmqConnectionConfig,
     concurrency: 6,
   });
-  // ... resto do worker ...
+
+  // Listeners de eventos
+  downloadWorker.on('completed', (job) => {
+    console.log(`✅ Job de download ${job.id} finalizado com sucesso`);
+  });
+
+  downloadWorker.on('failed', (job, err) => {
+    console.error(`❌ Job de download ${job.id} falhou: "${err.message}"`);
+    const filePath = path.join(DOWNLOAD_DIR, `${job.id}.mp4`);
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+      console.log(`🗑️ Limpando arquivo parcial de job falho: ${job.id}.mp4`);
+    }
+  });
+
+  console.log('▶️  Worker de Download iniciado e escutando a fila.');
 }

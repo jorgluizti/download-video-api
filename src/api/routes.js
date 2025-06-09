@@ -13,12 +13,19 @@ router.post('/download', async (req, res) => {
   const { url } = req.body;
   if (!url) return res.status(400).json({ error: 'Link obrigatório' });
 
+  // ✅ --- LOG DE DEPURAÇÃO 3 ---
+  console.log(`[API] Recebida requisição para a URL: ${url}`);
+
   const jobId = uuidv4();
   await downloadQueue.add(
     'download-video',
     { url, requestId: jobId },
     { jobId, timeout: 180000 }
   );
+
+  // ✅ --- LOG DE DEPURAÇÃO 4 ---
+  console.log(`[API] Job ${jobId} adicionado à fila com sucesso.`);
+
   res.status(202).json({ requestId: jobId, status: 'queued' });
 });
 
