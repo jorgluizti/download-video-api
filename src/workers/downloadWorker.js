@@ -358,7 +358,7 @@ import fs from 'fs';
 import { execFile } from 'child_process';
 import { bullmqConnectionConfig } from '../config/redis.js';
 
-const DOWNLOAD_DIR = path.join(process.cwd(), '/data/downloads');
+const DOWNLOAD_DIR = path.resolve('/data/downloads');
 const cookiesPath = path.resolve(process.cwd(), 'src/config/cookies.txt');
 
 export function startDownloadWorker() {

@@ -96,7 +96,7 @@ import fs from 'fs';
 import { bullmqConnectionConfig } from '../config/redis.js';
 import { cleanupQueue } from '../config/queues.js';
 
-const DOWNLOAD_DIR = path.join(process.cwd(), '/data/downloads');
+const DOWNLOAD_DIR = path.resolve('/data/downloads');
 
 export function startCleanupWorker() {
   const cleanupWorker = new Worker('cleanupQueue', async (job) => {

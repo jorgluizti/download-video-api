@@ -7,7 +7,8 @@ import fs from 'fs';
 import { downloadQueue } from '../config/queues.js';
 
 const router = Router();
-const DOWNLOAD_DIR = path.join(process.cwd(), '/data/downloads');
+// const DOWNLOAD_DIR = path.join(process.cwd(), '/data/downloads');
+const DOWNLOAD_DIR = path.resolve('/data/downloads');
 
 router.post('/download', async (req, res) => {
   const { url } = req.body;

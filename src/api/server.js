@@ -11,7 +11,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // Garante que o diretório de downloads exista
-const DOWNLOAD_DIR = path.join(process.cwd(), '/data/downloads');
+const DOWNLOAD_DIR = path.resolve('/data/downloads');
 if (!fs.existsSync(DOWNLOAD_DIR)) fs.mkdirSync(DOWNLOAD_DIR, { recursive: true });
 
 // Middlewares
