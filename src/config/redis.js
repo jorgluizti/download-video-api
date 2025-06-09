@@ -17,7 +17,7 @@
 
 // export default redisConnection;
 
-
+// 1.0
 
 // import Redis from 'ioredis';
 
@@ -56,42 +56,97 @@
 
 // export default redisConnection;
 
+
+// 2.0
+
+// src/config/redis.js
+// import Redis from 'ioredis';
+
+// // A única fonte da verdade para a URL do Redis no deploy.
+// const redisUrl = process.env.REDIS_URL;
+
+// console.log(`--- Verificação da Conexão Redis ---`);
+// if (redisUrl) {
+//   console.log(`✅ Variável de ambiente REDIS_URL foi ENCONTRADA.`);
+// } else {
+//   console.error(`❌ Variável de ambiente REDIS_URL NÃO FOI ENCONTRADA. A aplicação tentará usar o localhost.`);
+//   // Em um ambiente de produção, isso deveria causar um erro.
+//   if (process.env.NODE_ENV === 'production') {
+//     throw new Error('CONFIG ERROR: A variável de ambiente REDIS_URL não foi encontrada no ambiente de produção.');
+//   }
+// }
+// console.log(`------------------------------------`);
+
+
+// const redisConnection = new Redis(redisUrl, {
+//   // maxRetriesPerRequest: null é importante para que o worker não
+//   // desista de se conectar se o Redis reiniciar brevemente.
+//   maxRetriesPerRequest: null,
+// });
+
+// redisConnection.on('connect', () => {
+//   // Para Railway, a conexão real pode não ser localhost, então não vamos logar o host aqui para evitar confusão.
+//   console.log('🔌 Conexão com o Redis sendo estabelecida...');
+// });
+
+// redisConnection.on('ready', () => {
+//   console.log('✅ Conexão com o Redis pronta para uso!');
+// });
+
+// redisConnection.on('error', (err) => {
+//   console.error('❌ Erro de conexão com o Redis:', err.message);
+// });
+
+// export default redisConnection;
+
+// 3.0
+
 // src/config/redis.js
 import Redis from 'ioredis';
 
-// A única fonte da verdade para a URL do Redis no deploy.
 const redisUrl = process.env.REDIS_URL;
 
-console.log(`--- Verificação da Conexão Redis ---`);
-if (redisUrl) {
-  console.log(`✅ Variável de ambiente REDIS_URL foi ENCONTRADA.`);
-} else {
-  console.error(`❌ Variável de ambiente REDIS_URL NÃO FOI ENCONTRADA. A aplicação tentará usar o localhost.`);
-  // Em um ambiente de produção, isso deveria causar um erro.
+if (!redisUrl) {
   if (process.env.NODE_ENV === 'production') {
-    throw new Error('CONFIG ERROR: A variável de ambiente REDIS_URL não foi encontrada no ambiente de produção.');
+    throw new Error('CONFIG ERROR: A variável de ambiente REDIS_URL não foi encontrada.');
   }
 }
-console.log(`------------------------------------`);
 
+// --- Conexão Padrão (que você pode usar para outras coisas) ---
+// Adicionamos ?family=0 para resolver o problema de IPv6 na Railway
+const connectionString = redisUrl ? `${redisUrl}?family=0` : undefined;
 
-const redisConnection = new Redis(redisUrl, {
-  // maxRetriesPerRequest: null é importante para que o worker não
-  // desista de se conectar se o Redis reiniciar brevemente.
+const redisConnection = new Redis(connectionString, {
   maxRetriesPerRequest: null,
 });
 
-redisConnection.on('connect', () => {
-  // Para Railway, a conexão real pode não ser localhost, então não vamos logar o host aqui para evitar confusão.
-  console.log('🔌 Conexão com o Redis sendo estabelecida...');
-});
+// --- Objeto de Configuração para o BullMQ ---
+// Esta é a forma mais robusta de passar a configuração para as Queues e Workers
+// Ele extrai as partes da URL e adiciona a opção 'family: 0'
+let bullmqConnectionConfig;
+if (redisUrl) {
+  const redisURL_obj = new URL(redisUrl);
+  bullmqConnectionConfig = {
+    host: redisURL_obj.hostname,
+    port: Number(redisURL_obj.port),
+    username: redisURL_obj.username,
+    password: redisURL_obj.password,
+    family: 0, // A CORREÇÃO CRÍTICA
+  };
+} else {
+  // Configuração para ambiente local se a URL não for definida
+  bullmqConnectionConfig = {
+    host: 'localhost',
+    port: 6379,
+  };
+}
 
-redisConnection.on('ready', () => {
-  console.log('✅ Conexão com o Redis pronta para uso!');
-});
 
-redisConnection.on('error', (err) => {
-  console.error('❌ Erro de conexão com o Redis:', err.message);
-});
+// Listeners de eventos para depuração
+redisConnection.on('connect', () => console.log('🔌 Conexão principal com o Redis sendo estabelecida...'));
+redisConnection.on('ready', () => console.log('✅ Conexão principal com o Redis pronta para uso!'));
+redisConnection.on('error', (err) => console.error('❌ Erro na conexão principal com o Redis:', err.message));
 
+// Exportamos tanto a conexão principal quanto o objeto de configuração do BullMQ
 export default redisConnection;
+export { bullmqConnectionConfig };
