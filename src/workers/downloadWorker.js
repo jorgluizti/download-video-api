@@ -222,6 +222,8 @@ import path from 'path';
 import { execFile } from 'child_process';
 import { bullmqConnectionConfig } from '../config/redis.js';
 // const cookiesPath = path.join('/tmp', `cookies_${job.id}.txt`); // LINHA ANTIGA - REMOVA
+
+const DOWNLOAD_DIR = path.join(process.cwd(), 'downloads');
 const cookiesPath = path.resolve(process.cwd(), 'src/config/cookies.txt'); // <-- LINHA NOVA
 
 export function startDownloadWorker() {
