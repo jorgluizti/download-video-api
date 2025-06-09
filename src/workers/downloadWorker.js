@@ -217,6 +217,10 @@
 
 // src/workers/downloadWorker.js
 // ... outros imports
+import { Worker } from 'bullmq';
+import path from 'path';
+import { execFile } from 'child_process';
+import { bullmqConnectionConfig } from '../config/redis.js';
 // const cookiesPath = path.join('/tmp', `cookies_${job.id}.txt`); // LINHA ANTIGA - REMOVA
 const cookiesPath = path.resolve(process.cwd(), 'src/config/cookies.txt'); // <-- LINHA NOVA
 
