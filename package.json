@@ -10,12 +10,16 @@
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.826.0",
+    "@aws-sdk/s3-request-presigner": "^3.826.0",
     "bullmq": "^5.53.2",
+    "dotenv": "^16.5.0",
     "express": "4.19.2",
     "express-rate-limit": "^7.5.0",
     "ioredis": "^5.6.1",
     "multer": "^2.0.1",
     "path": "0.12.7",
-    "uuid": "^11.1.0"
+    "uuid": "^11.1.0",
+    "youtube-dl-exec": "^3.0.22"
   }
 }

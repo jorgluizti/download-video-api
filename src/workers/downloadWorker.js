@@ -352,70 +352,141 @@
 // }
 
 // src/workers/downloadWorker.js
+// import { Worker } from 'bullmq';
+// import path from 'path';
+// import fs from 'fs';
+// import { execFile } from 'child_process';
+// import { bullmqConnectionConfig } from '../config/redis.js';
+
+// const DOWNLOAD_DIR = path.resolve('/data/downloads');
+// const cookiesPath = path.resolve(process.cwd(), 'src/config/cookies.txt');
+
+// export function startDownloadWorker() {
+//   const downloadWorker = new Worker('downloadQueue', async (job) => {
+//     console.log(`[WORKER] Job ${job.id} recebido! Iniciando processamento...`);
+
+//     if (!fs.existsSync(cookiesPath)) {
+//       throw new Error(`Arquivo de cookies não encontrado no caminho: ${cookiesPath}`);
+//     }
+
+//     const { url, requestId } = job.data;
+//     const outputPath = path.join(DOWNLOAD_DIR, `${requestId}.mp4`);
+//     const args = ['--cookies', cookiesPath, '-o', outputPath, '--no-warnings', url];
+
+//     console.log(`[WORKER] Executando comando yt-dlp para o job ${job.id}...`);
+
+//     return new Promise((resolve, reject) => {
+//       execFile('yt-dlp', args, (error, stdout, stderr) => {
+//         if (error) {
+//           return reject(new Error(stderr || 'Erro desconhecido durante o download.'));
+//         }
+
+//         // ==========================================================
+//         //              INÍCIO DO NOVO BLOCO DE VERIFICAÇÃO
+//         // ==========================================================
+//         console.log('[WORKER] Comando yt-dlp finalizado sem código de erro. Verificando a existência do arquivo...');
+//         console.log(`[WORKER] Procurando por arquivo em: ${outputPath}`);
+
+//         if (fs.existsSync(outputPath)) {
+//           console.log(`[WORKER] ✅ Arquivo encontrado! Resolvendo o job como SUCESSO.`);
+//           resolve({ message: 'Download completo e arquivo verificado.' });
+//         } else {
+//           console.error(`[WORKER] ❌ ARQUIVO NÃO ENCONTRADO! O yt-dlp terminou, mas não criou o arquivo.`);
+
+//           // Tenta listar o conteúdo da pasta para depuração
+//           try {
+//             const filesInDir = fs.readdirSync(DOWNLOAD_DIR);
+//             console.log(`[WORKER] Conteúdo atual da pasta 'downloads':`, filesInDir);
+//           } catch (e) {
+//             console.error(`[WORKER] Não foi possível ler o diretório 'downloads':`, e);
+//           }
+
+//           reject(new Error('Falha pós-processamento: O arquivo de saída não foi criado pelo yt-dlp.'));
+//         }
+//         // ==========================================================
+//         //                FIM DO NOVO BLOCO DE VERIFICAÇÃO
+//         // ==========================================================
+//       });
+//     });
+//   }, {
+//     connection: bullmqConnectionConfig,
+//     concurrency: 6,
+//   });
+
+//   // Seus listeners ...
+//   downloadWorker.on('completed', job => { /* ... */ });
+//   downloadWorker.on('failed', (job, err) => { /* ... */ });
+
+//   console.log('▶️  Worker de Download iniciado e escutando a fila.');
+// }
+
+// src/workers/downloadWorker.js
 import { Worker } from 'bullmq';
 import path from 'path';
 import fs from 'fs';
 import { execFile } from 'child_process';
 import { bullmqConnectionConfig } from '../config/redis.js';
+import s3Client from '../config/s3Client.js';
+import { PutObjectCommand } from '@aws-sdk/client-s3';
 
-const DOWNLOAD_DIR = path.resolve('/data/downloads');
-const cookiesPath = path.resolve(process.cwd(), 'src/config/cookies.txt');
+const TEMP_DIR = path.join(process.cwd(), 'temp_downloads');
+if (!fs.existsSync(TEMP_DIR)) fs.mkdirSync(TEMP_DIR, { recursive: true });
 
 export function startDownloadWorker() {
   const downloadWorker = new Worker('downloadQueue', async (job) => {
-    console.log(`[WORKER] Job ${job.id} recebido! Iniciando processamento...`);
-
-    if (!fs.existsSync(cookiesPath)) {
-      throw new Error(`Arquivo de cookies não encontrado no caminho: ${cookiesPath}`);
-    }
+    console.log(`[WORKER] Job ${job.id} recebido!`);
 
     const { url, requestId } = job.data;
-    const outputPath = path.join(DOWNLOAD_DIR, `${requestId}.mp4`);
-    const args = ['--cookies', cookiesPath, '-o', outputPath, '--no-warnings', url];
+    const tempFilePath = path.join(TEMP_DIR, `${requestId}.mp4`);
+    const objectKey = `${requestId}.mp4`; // O nome do arquivo no R2
 
-    console.log(`[WORKER] Executando comando yt-dlp para o job ${job.id}...`);
-
-    return new Promise((resolve, reject) => {
-      execFile('yt-dlp', args, (error, stdout, stderr) => {
-        if (error) {
-          return reject(new Error(stderr || 'Erro desconhecido durante o download.'));
-        }
-
-        // ==========================================================
-        //              INÍCIO DO NOVO BLOCO DE VERIFICAÇÃO
-        // ==========================================================
-        console.log('[WORKER] Comando yt-dlp finalizado sem código de erro. Verificando a existência do arquivo...');
-        console.log(`[WORKER] Procurando por arquivo em: ${outputPath}`);
-
-        if (fs.existsSync(outputPath)) {
-          console.log(`[WORKER] ✅ Arquivo encontrado! Resolvendo o job como SUCESSO.`);
-          resolve({ message: 'Download completo e arquivo verificado.' });
-        } else {
-          console.error(`[WORKER] ❌ ARQUIVO NÃO ENCONTRADO! O yt-dlp terminou, mas não criou o arquivo.`);
-
-          // Tenta listar o conteúdo da pasta para depuração
-          try {
-            const filesInDir = fs.readdirSync(DOWNLOAD_DIR);
-            console.log(`[WORKER] Conteúdo atual da pasta 'downloads':`, filesInDir);
-          } catch (e) {
-            console.error(`[WORKER] Não foi possível ler o diretório 'downloads':`, e);
-          }
-
-          reject(new Error('Falha pós-processamento: O arquivo de saída não foi criado pelo yt-dlp.'));
-        }
-        // ==========================================================
-        //                FIM DO NOVO BLOCO DE VERIFICAÇÃO
-        // ==========================================================
+    try {
+      // 1. Baixa o vídeo para um arquivo temporário local
+      await new Promise((resolve, reject) => {
+        const args = ['-o', tempFilePath, '--no-warnings', url]; // Adicionamos cookies se necessário
+        console.log(`[WORKER] Executando yt-dlp para o job ${job.id}...`);
+        execFile('yt-dlp', args, (error, stdout, stderr) => {
+          if (error) return reject(new Error(stderr || 'Erro no yt-dlp.'));
+          resolve();
+        });
       });
-    });
+      console.log(`[WORKER] Vídeo baixado para ${tempFilePath}`);
+
+      // 2. Faz o upload do arquivo para o Cloudflare R2
+      const fileStream = fs.createReadStream(tempFilePath);
+      const uploadParams = {
+        Bucket: process.env.R2_BUCKET_NAME,
+        Key: objectKey,
+        Body: fileStream,
+        ContentType: 'video/mp4'
+      };
+
+      console.log(`[WORKER] Fazendo upload de ${objectKey} para o R2...`);
+      await s3Client.send(new PutObjectCommand(uploadParams));
+      console.log(`[WORKER] ✅ Upload para o R2 concluído.`);
+
+      // Retorna o nome do arquivo no R2 para a API usar
+      return { objectKey: objectKey };
+
+    } finally {
+      // 3. Deleta o arquivo temporário local, independentemente do resultado
+      if (fs.existsSync(tempFilePath)) {
+        fs.unlinkSync(tempFilePath);
+        console.log(`[WORKER] Arquivo temporário ${tempFilePath} deletado.`);
+      }
+    }
   }, {
     connection: bullmqConnectionConfig,
     concurrency: 6,
   });
 
-  // Seus listeners ...
-  downloadWorker.on('completed', job => { /* ... */ });
-  downloadWorker.on('failed', (job, err) => { /* ... */ });
+  // Seus listeners de eventos...
+  downloadWorker.on('completed', (job, result) => {
+    console.log(`✅ Job de download ${job.id} finalizado. Arquivo no R2: ${result.objectKey}`);
+  });
+  downloadWorker.on('failed', (job, err) => {
+    console.error(`❌ Job de download ${job.id} falhou: "${err.message}"`);
+  });
 
-  console.log('▶️  Worker de Download iniciado e escutando a fila.');
+  console.log('▶️  Worker de Download (R2) iniciado.');
 }
