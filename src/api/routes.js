@@ -1,215 +1,48 @@
-// // # Define todas as rotas da API// src/api/routes.js
-
-// import { Router } from 'express';
-// import { v4 as uuidv4 } from 'uuid';
-// import path from 'path';
-// import fs from 'fs';
-// import { downloadQueue } from '../config/queues.js';
-
-// const router = Router();
-// // const DOWNLOAD_DIR = path.join(process.cwd(), '/data/downloads');
-// const DOWNLOAD_DIR = path.resolve('/data/downloads');
-
-// router.post('/download', async (req, res) => {
-//   const { url } = req.body;
-//   if (!url) return res.status(400).json({ error: 'Link obrigatório' });
-
-//   // ✅ --- LOG DE DEPURAÇÃO 3 ---
-//   console.log(`[API] Recebida requisição para a URL: ${url}`);
-
-//   const jobId = uuidv4();
-//   await downloadQueue.add(
-//     'download-video',
-//     { url, requestId: jobId },
-//     { jobId, timeout: 180000 }
-//   );
-
-//   // ✅ --- LOG DE DEPURAÇÃO 4 ---
-//   console.log(`[API] Job ${jobId} adicionado à fila com sucesso.`);
-
-//   res.status(202).json({ requestId: jobId, status: 'queued' });
-// });
-
-// router.get('/status/:id', async (req, res) => {
-//   const jobId = req.params.id;
-//   const job = await downloadQueue.getJob(jobId);
-
-//   if (!job) {
-//     return res.status(404).json({ status: 'not_found' });
-//   }
-
-//   const state = await job.getState();
-//   switch (state) {
-//     case 'completed':
-//       res.json({ status: 'completed' });
-//       break;
-//     case 'failed':
-//       res.json({ status: 'failed', reason: job.failedReason });
-//       break;
-//     default:
-//       res.json({ status: 'processing' });
-//       break;
-//   }
-// });
-
-// router.get('/download/:id', (req, res) => {
-//   const jobId = req.params.id;
-//   const filePath = path.join(DOWNLOAD_DIR, `${jobId}.mp4`);
-
-//   if (fs.existsSync(filePath)) {
-//     res.download(filePath, (err) => {
-//       if (err) console.error(`Erro ao enviar o arquivo ${jobId}.mp4:`, err);
-//     });
-//   } else {
-//     res.status(404).json({ error: 'Arquivo não encontrado ou expirado.' });
-//   }
-// });
-
-// export default router;
-
-
-// 1.0
-
-// src/api/routes.js
-// import { Router } from 'express';
-// import { v4 as uuidv4 } from 'uuid';
-// import path from 'path';
-// import fs from 'fs';
-// import { downloadQueue } from '../config/queues.js';
-
-// const router = Router();
-// const DOWNLOAD_DIR = path.resolve('/data/downloads');
-
-// router.post('/download', async (req, res) => {
-//   // ... esta rota está funcionando bem, sem necessidade de logs extras
-//   const { url } = req.body;
-//   if (!url) return res.status(400).json({ error: 'Link obrigatório' });
-
-//   const jobId = uuidv4();
-//   await downloadQueue.add(
-//     'download-video',
-//     { url, requestId: jobId },
-//     { jobId, timeout: 180000 }
-//   );
-//   res.status(202).json({ requestId: jobId, status: 'queued' });
-// });
-
-// router.get('/status/:id', async (req, res) => {
-//   const jobId = req.params.id;
-//   const job = await downloadQueue.getJob(jobId);
-
-//   if (!job) {
-//     return res.status(404).json({ status: 'not_found' });
-//   }
-
-//   const state = await job.getState();
-//   if (state === 'completed') {
-//     // ✅ LOG DE DEPURAÇÃO 1
-//     console.log(`[API /status] Job ${jobId} está completo. Avisando o frontend para iniciar o download.`);
-//   }
-
-//   res.json({
-//     status: state,
-//     reason: job.failedReason
-//   });
-// });
-
-// router.get('/download/:id', (req, res) => {
-//   const jobId = req.params.id;
-//   // ✅ LOG DE DEPURAÇÃO 2
-//   console.log(`[API /download] Recebido pedido para o arquivo do job: ${jobId}`);
-
-//   const filePath = path.join(DOWNLOAD_DIR, `${jobId}.mp4`);
-//   console.log(`[API /download] Procurando arquivo no caminho completo: ${filePath}`);
-
-//   // ✅ LOG DE DEPURAÇÃO 3: VERIFICAÇÃO MÁXIMA
-//   // Tenta listar o conteúdo do diretório para sabermos o que a API está vendo.
-//   try {
-//     const filesInDir = fs.readdirSync(DOWNLOAD_DIR);
-//     console.log(`[API /download] Conteúdo encontrado na pasta ${DOWNLOAD_DIR}:`, filesInDir);
-//   } catch (e) {
-//     console.error(`[API /download] ERRO ao tentar ler o diretório ${DOWNLOAD_DIR}:`, e.message);
-//   }
-
-//   if (fs.existsSync(filePath)) {
-//     console.log(`[API /download] ✅ Arquivo encontrado! Iniciando o envio para o cliente.`);
-//     res.download(filePath, (err) => {
-//       if (err) console.error(`Erro ao enviar o arquivo ${jobId}.mp4:`, err);
-//     });
-//   } else {
-//     console.error(`[API /download] ❌ ARQUIVO NÃO ENCONTRADO PELA API NO CAMINHO: ${filePath}`);
-//     res.status(404).json({ error: 'Arquivo não encontrado ou expirado.' });
-//   }
-// });
-
-// export default router;
-
-// 2.0
-
 // src/api/routes.js
 import { Router } from 'express';
 import { v4 as uuidv4 } from 'uuid';
-import { downloadQueue } from '../config/queues.js';
-import s3Client from '../config/s3Client.js';
-import { GetObjectCommand } from '@aws-sdk/client-s3';
-import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { extractionQueue } from '../config/queues.js'; // Usa a nova fila
 
 const router = Router();
 
-router.post('/download', async (req, res) => {
-  const { url } = req.body;
-  if (!url) return res.status(400).json({ error: 'Link obrigatório' });
+// A rota principal agora se chama 'extract' e espera os cookies do usuário
+router.post('/extract', async (req, res) => {
+  const { instagramUrl, userCookies } = req.body;
+
+  if (!instagramUrl || !userCookies) {
+    return res.status(400).json({ error: 'Os parâmetros "instagramUrl" e "userCookies" são obrigatórios.' });
+  }
 
   const jobId = uuidv4();
-  await downloadQueue.add(
-    'download-video',
-    { url, requestId: jobId },
-    { jobId, timeout: 180000 }
+  await extractionQueue.add(
+    'extract-video-url',
+    { instagramUrl, userCookies },
+    { jobId, attempts: 2, backoff: 5000 } // Tenta 2 vezes em caso de falha
   );
+
+  // Retorna apenas o ID do job para o frontend consultar o status
   res.status(202).json({ requestId: jobId, status: 'queued' });
 });
 
+// A rota de status agora retorna a URL direta quando o job é concluído
 router.get('/status/:id', async (req, res) => {
   const jobId = req.params.id;
-  const job = await downloadQueue.getJob(jobId);
+  const job = await extractionQueue.getJob(jobId);
 
   if (!job) {
     return res.status(404).json({ status: 'not_found' });
   }
 
   const state = await job.getState();
-  const result = {
+  res.json({
     status: state,
     reason: job.failedReason,
-    // Se o job foi concluído, o returnvalue terá o objectKey
-    fileKey: job.returnvalue?.objectKey || null,
-  };
-
-  res.json(result);
-});
-
-// A rota /download agora redireciona para um link seguro e temporário do R2
-router.get('/download/:key', async (req, res) => {
-  const fileKey = req.params.key;
-  console.log(`[API /download] Recebido pedido para o arquivo: ${fileKey}`);
-
-  const command = new GetObjectCommand({
-    Bucket: process.env.R2_BUCKET_NAME,
-    Key: fileKey,
+    // O resultado do job (returnvalue) agora contém a URL direta
+    videoUrl: job.returnvalue?.directVideoUrl || null,
   });
-
-  try {
-    // Gera uma URL que expira em 5 minutos (300 segundos)
-    const signedUrl = await getSignedUrl(s3Client, command, { expiresIn: 300 });
-    console.log(`[API /download] Gerada URL assinada. Redirecionando cliente...`);
-
-    // Redireciona o navegador do usuário para o link de download direto
-    res.redirect(signedUrl);
-
-  } catch (error) {
-    console.error(`[API /download] Erro ao gerar URL assinada:`, error);
-    res.status(404).json({ error: 'Arquivo não encontrado ou erro ao gerar link.' });
-  }
 });
+
+// A rota GET /download não é mais necessária neste modelo.
+// O app React Native irá baixar o 'videoUrl' diretamente.
 
 export default router;
