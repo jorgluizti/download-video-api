@@ -1,48 +1,74 @@
 // src/api/routes.js
 import { Router } from 'express';
+import { Queue } from 'bullmq';
+import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { v4 as uuidv4 } from 'uuid';
-import { extractionQueue } from '../config/queues.js'; // Usa a nova fila
+import { bullmqConnectionConfig } from '../config/redis.js';
 
 const router = Router();
+const downloadQueue = new Queue('downloadQueue', { connection: bullmqConnectionConfig });
 
-// A rota principal agora se chama 'extract' e espera os cookies do usuário
-router.post('/extract', async (req, res) => {
+// --- Configuração do Cliente S3 (igual ao worker) ---
+const R2 = new S3Client({
+  region: 'auto',
+  endpoint: `https://<SEU_ACCOUNT_ID>.r2.cloudflarestorage.com`, // ⚠️ SUBSTITUA PELO SEU ACCOUNT ID
+  credentials: {
+    accessKeyId: process.env.R2_ACCESS_KEY_ID,
+    secretAccessKey: process.env.R2_SECRET_ACCESS_KEY,
+  },
+});
+const BUCKET_NAME = process.env.R2_BUCKET_NAME;
+
+
+// --- ROTAS DA API ---
+
+// Rota 1: Cliente envia a URL do Insta + Cookies para iniciar o processo
+router.post('/download', async (req, res) => {
   const { instagramUrl, userCookies } = req.body;
-
   if (!instagramUrl || !userCookies) {
-    return res.status(400).json({ error: 'Os parâmetros "instagramUrl" e "userCookies" são obrigatórios.' });
+    return res.status(400).json({ message: 'URL do Instagram e cookies são obrigatórios.' });
   }
 
   const jobId = uuidv4();
-  await extractionQueue.add(
-    'extract-video-url',
-    { instagramUrl, userCookies },
-    { jobId, attempts: 2, backoff: 5000 } // Tenta 2 vezes em caso de falha
-  );
+  await downloadQueue.add('download-video', { instagramUrl, userCookies }, { jobId, attempts: 2 });
 
-  // Retorna apenas o ID do job para o frontend consultar o status
-  res.status(202).json({ requestId: jobId, status: 'queued' });
+  res.status(202).json({ message: 'Solicitação recebida.', requestId: jobId });
 });
 
-// A rota de status agora retorna a URL direta quando o job é concluído
+// Rota 2: Cliente pergunta o status do job
 router.get('/status/:id', async (req, res) => {
-  const jobId = req.params.id;
-  const job = await extractionQueue.getJob(jobId);
+  const job = await downloadQueue.getJob(req.params.id);
+  if (!job) return res.status(404).json({ status: 'not_found' });
 
-  if (!job) {
-    return res.status(404).json({ status: 'not_found' });
+  const status = await job.getState();
+  if (status === 'completed') {
+    res.json({ status, result: job.returnvalue });
+  } else if (status === 'failed') {
+    res.json({ status, reason: job.failedReason });
+  } else {
+    res.json({ status });
   }
-
-  const state = await job.getState();
-  res.json({
-    status: state,
-    reason: job.failedReason,
-    // O resultado do job (returnvalue) agora contém a URL direta
-    videoUrl: job.returnvalue?.directVideoUrl || null,
-  });
 });
 
-// A rota GET /download não é mais necessária neste modelo.
-// O app React Native irá baixar o 'videoUrl' diretamente.
+// Rota 3: Cliente, após job completo, pede o link de download do R2
+router.get('/download/:key', async (req, res) => {
+  const { key } = req.params;
+
+  try {
+    const command = new GetObjectCommand({
+      Bucket: BUCKET_NAME,
+      Key: key,
+    });
+    // Gera uma URL assinada que expira em 5 minutos
+    const signedUrl = await getSignedUrl(R2, command, { expiresIn: 300 });
+
+    // Redireciona o cliente para a URL assinada do R2
+    res.redirect(302, signedUrl);
+  } catch (error) {
+    console.error("Erro ao gerar URL assinada:", error);
+    res.status(500).send("Não foi possível obter o link de download.");
+  }
+});
 
 export default router;
